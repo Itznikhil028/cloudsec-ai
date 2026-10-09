@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, ShieldCheck, Terminal, Code } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Terminal, Code, Wrench, CheckCircle2, Sparkles } from "lucide-react";
 
 interface Finding {
   id: string;
@@ -41,8 +41,9 @@ export default function Home() {
   const [iacCode, setIacCode] = useState(DEFAULT_IAC);
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [appliedRule, setAppliedRule] = useState<string | null>(null);
 
-  const handleScan = async () => {
+  const runScan = async (codeToScan: string) => {
     setLoading(true);
     try {
       const res = await fetch("http://127.0.0.1:8000/api/v1/scans/submit", {
@@ -50,7 +51,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_name: "Production-Audit",
-          raw_iac_code: iacCode,
+          raw_iac_code: codeToScan,
         }),
       });
       const data = await res.json();
@@ -61,6 +62,35 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApplyPatch = async (finding: Finding) => {
+    let updatedCode = iacCode;
+    const patch = finding.ai_suggested_patch;
+
+    if (finding.rule_id === "CKV_AWS_24") {
+      const insecureIngressPattern = /ingress\s*\{[^}]*from_port\s*=\s*22[^}]*cidr_blocks\s*=\s*\["0\.0\.0\.0\/0"\][^}]*\}/s;
+      if (insecureIngressPattern.test(updatedCode)) {
+        updatedCode = updatedCode.replace(insecureIngressPattern, patch.trim());
+      } else {
+        updatedCode = `${updatedCode}\n\n${patch}`;
+      }
+    } else if (finding.rule_id === "CKV_AWS_23") {
+      const sgPattern = /(resource\s+"aws_security_group"\s+"[a-zA-Z0-9_-]+"\s*\{[\s\S]*?name\s*=\s*"[^"]+")/;
+      if (sgPattern.test(updatedCode)) {
+        updatedCode = updatedCode.replace(sgPattern, `$1\n${patch.trim()}`);
+      } else {
+        updatedCode = `${updatedCode}\n\n${patch}`;
+      }
+    } else {
+      updatedCode = `${updatedCode.trim()}\n\n${patch}\n`;
+    }
+
+    setIacCode(updatedCode);
+    setAppliedRule(finding.rule_id);
+    setTimeout(() => setAppliedRule(null), 2500);
+
+    await runScan(updatedCode);
   };
 
   return (
@@ -87,9 +117,9 @@ export default function Home() {
                 <Terminal className="w-4 h-4 text-cyan-400" /> Terraform Infrastructure Code
               </span>
               <button
-                onClick={handleScan}
+                onClick={() => runScan(iacCode)}
                 disabled={loading}
-                className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
+                className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/10"
               >
                 {loading ? "Analyzing Engine..." : "Trigger AI Audit"}
               </button>
@@ -98,7 +128,7 @@ export default function Home() {
             <textarea
               value={iacCode}
               onChange={(e) => setIacCode(e.target.value)}
-              className="w-full h-[540px] bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              className="w-full h-[560px] bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 leading-relaxed"
               spellCheck="false"
             />
           </section>
@@ -109,17 +139,29 @@ export default function Home() {
                 <ShieldCheck className="w-4 h-4 text-emerald-400" /> Audit Findings & Patches
               </span>
               {scanResult && (
-                <span className="text-xs bg-rose-500/20 text-rose-300 border border-rose-500/30 px-3 py-1 rounded-full font-medium">
-                  {scanResult.total_findings} Misconfigurations Detected
+                <span className={`text-xs px-3 py-1 rounded-full font-medium border transition-all ${
+                  scanResult.total_findings === 0
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                    : "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                }`}>
+                  {scanResult.total_findings === 0 ? "All Resources Compliant" : `${scanResult.total_findings} Misconfigurations Detected`}
                 </span>
               )}
             </div>
 
-            <div className="h-[540px] overflow-y-auto space-y-4 pr-1">
+            <div className="h-[560px] overflow-y-auto space-y-4 pr-1">
               {!scanResult ? (
                 <div className="h-full border border-dashed border-slate-800 rounded-xl flex flex-col items-center justify-center text-slate-500 space-y-3">
                   <Code className="w-10 h-10 stroke-[1.5]" />
                   <p className="text-sm">Submit Terraform code on the left to run security analysis.</p>
+                </div>
+              ) : scanResult.total_findings === 0 ? (
+                <div className="h-full border border-emerald-900/40 bg-emerald-950/10 rounded-xl flex flex-col items-center justify-center text-emerald-300 space-y-3 p-8 text-center">
+                  <Sparkles className="w-12 h-12 text-emerald-400 animate-bounce" />
+                  <h3 className="text-lg font-semibold text-emerald-200">Zero Security Misconfigurations Found</h3>
+                  <p className="text-xs text-emerald-400/80 max-w-sm">
+                    All CIS benchmarks and AWS cloud compliance standards have been satisfied. Infrastructure is hardened and production-ready.
+                  </p>
                 </div>
               ) : (
                 scanResult.findings.map((finding) => (
@@ -139,8 +181,25 @@ export default function Home() {
                     </div>
 
                     {finding.ai_suggested_patch && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-emerald-400 font-semibold">AI Automated Remediation Patch:</p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs text-emerald-400 font-semibold">AI Automated Remediation Patch:</p>
+                          <button
+                            onClick={() => handleApplyPatch(finding)}
+                            disabled={loading}
+                            className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs px-2.5 py-1 rounded flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {appliedRule === finding.rule_id ? (
+                              <>
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> Patched!
+                              </>
+                            ) : (
+                              <>
+                                <Wrench className="w-3.5 h-3.5" /> Apply Patch
+                              </>
+                            )}
+                          </button>
+                        </div>
                         <pre className="bg-slate-950 border border-emerald-950/60 p-3 rounded-lg text-xs font-mono text-emerald-300 overflow-x-auto whitespace-pre-wrap">
                           {finding.ai_suggested_patch}
                         </pre>
