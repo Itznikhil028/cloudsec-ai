@@ -1,0 +1,41 @@
+name: IaC Security Gate & Checkov Audit
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  iac-security-scan:
+    name: Run CloudSec IaC Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install checkov
+
+      - name: Run Checkov Security Gate Scan
+        run: |
+          mkdir -p reports
+          # Scan fixture/samples directory, outputting both CLI summary and JSON report
+          checkov -d apps/api/tests/fixtures --output cli --output json --output-file reports/checkov_report.json --soft-fail
+
+      - name: Upload Audit Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iac-security-audit-report
+          path: reports/
+          retention-days: 14
