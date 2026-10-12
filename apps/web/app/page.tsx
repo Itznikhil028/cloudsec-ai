@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, ShieldCheck, Terminal, Code, Wrench, CheckCircle2, Sparkles, Download, FileJson } from "lucide-react";
+import { 
+  ShieldAlert, ShieldCheck, Terminal, Code, Wrench, 
+  CheckCircle2, Sparkles, Download, FileJson, GitCompare, Edit3 
+} from "lucide-react";
+import { diffLines, Change } from "diff";
 
 interface Finding {
   id: string;
@@ -38,10 +42,12 @@ resource "aws_security_group" "allow_ssh" {
 }`;
 
 export default function Home() {
+  const [originalIac, setOriginalIac] = useState(DEFAULT_IAC);
   const [iacCode, setIacCode] = useState(DEFAULT_IAC);
   const [loading, setLoading] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [appliedRule, setAppliedRule] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"editor" | "diff">("editor");
 
   const runScan = async (codeToScan: string) => {
     setLoading(true);
@@ -130,6 +136,8 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const diffResult: Change[] = diffLines(originalIac, iacCode);
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -170,11 +178,34 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <section className="space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-cyan-400" /> Terraform Infrastructure Code
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-cyan-400" /> Terraform Infrastructure Code
+                </span>
+                <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-xs">
+                  <button
+                    onClick={() => setViewMode("editor")}
+                    className={`px-2.5 py-1 rounded flex items-center gap-1 cursor-pointer transition-colors ${
+                      viewMode === "editor" ? "bg-slate-800 text-cyan-300 font-medium" : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <Edit3 className="w-3 h-3" /> Editor
+                  </button>
+                  <button
+                    onClick={() => setViewMode("diff")}
+                    className={`px-2.5 py-1 rounded flex items-center gap-1 cursor-pointer transition-colors ${
+                      viewMode === "diff" ? "bg-slate-800 text-emerald-300 font-medium" : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <GitCompare className="w-3 h-3" /> Diff View
+                  </button>
+                </div>
+              </div>
               <button
-                onClick={() => runScan(iacCode)}
+                onClick={() => {
+                  setOriginalIac(iacCode);
+                  runScan(iacCode);
+                }}
                 disabled={loading}
                 className="bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 text-slate-950 font-semibold px-4 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 cursor-pointer shadow-lg shadow-cyan-500/10"
               >
@@ -182,12 +213,36 @@ export default function Home() {
               </button>
             </div>
 
-            <textarea
-              value={iacCode}
-              onChange={(e) => setIacCode(e.target.value)}
-              className="w-full h-[560px] bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 leading-relaxed"
-              spellCheck="false"
-            />
+            {viewMode === "editor" ? (
+              <textarea
+                value={iacCode}
+                onChange={(e) => setIacCode(e.target.value)}
+                className="w-full h-[560px] bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 leading-relaxed"
+                spellCheck="false"
+              />
+            ) : (
+              <div className="w-full h-[560px] bg-slate-900 border border-slate-800 rounded-xl p-4 font-mono text-xs overflow-y-auto leading-relaxed">
+                <div className="text-slate-500 border-b border-slate-800 pb-2 mb-2 flex justify-between">
+                  <span>--- Original Insecure Baseline</span>
+                  <span className="text-emerald-400">+++ Remediated Compliant Code</span>
+                </div>
+                {diffResult.map((part, index) => {
+                  const color = part.added
+                    ? "bg-emerald-950/40 text-emerald-300 border-l-2 border-emerald-500 pl-2 block"
+                    : part.removed
+                    ? "bg-rose-950/40 text-rose-300 border-l-2 border-rose-500 pl-2 block line-through opacity-75"
+                    : "text-slate-400 pl-2.5 block";
+                  const prefix = part.added ? "+ " : part.removed ? "- " : "  ";
+                  return (
+                    <div key={index} className={color}>
+                      {part.value.split("\n").map((line, lIdx) => 
+                        line ? <div key={lIdx}>{prefix}{line}</div> : null
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <section className="space-y-4">
