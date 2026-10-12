@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ShieldAlert, ShieldCheck, Terminal, Code, Wrench, CheckCircle2, Sparkles } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Terminal, Code, Wrench, CheckCircle2, Sparkles, Download, FileJson } from "lucide-react";
 
 interface Finding {
   id: string;
@@ -69,7 +69,7 @@ export default function Home() {
     const patch = finding.ai_suggested_patch;
 
     if (finding.rule_id === "CKV_AWS_24") {
-      const insecureIngressPattern = /ingress\s*\{[^}]*from_port\s*=\s*22[^}]*cidr_blocks\s*=\s*\["0\.0\.0\.0\/0"\][^}]*\}/s;
+      const insecureIngressPattern = /ingress\s*\{[^}]*from_port\s*=\s*22[^}]*cidr_blocks\s*=\s*\["0\.0\.0\.0\/0"\][^}]*\}/;
       if (insecureIngressPattern.test(updatedCode)) {
         updatedCode = updatedCode.replace(insecureIngressPattern, patch.trim());
       } else {
@@ -93,6 +93,43 @@ export default function Home() {
     await runScan(updatedCode);
   };
 
+  const handleDownloadHcl = () => {
+    const blob = new Blob([iacCode], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "hardened-main.tf";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportJsonReport = () => {
+    if (!scanResult) return;
+    const reportPayload = {
+      audit_meta: {
+        engine: "CloudSecAI Core Scanner v1.0",
+        timestamp: new Date().toISOString(),
+        status: scanResult.status,
+        total_violations: scanResult.total_findings,
+        compliance_state: scanResult.total_findings === 0 ? "PASSED" : "FAILED",
+      },
+      audit_findings: scanResult.findings,
+      remediated_hcl_snapshot: iacCode,
+    };
+
+    const blob = new Blob([JSON.stringify(reportPayload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `cloudsec-audit-${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -104,9 +141,29 @@ export default function Home() {
               <p className="text-sm text-slate-400">Autonomous IaC Security Scanner & AI Patch Engine</p>
             </div>
           </div>
-          <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-full text-xs text-emerald-400">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>API Engine Online</span>
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={handleDownloadHcl}
+              className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Download Current Terraform HCL"
+            >
+              <Download className="w-3.5 h-3.5 text-cyan-400" />
+              Download .tf
+            </button>
+            {scanResult && (
+              <button
+                onClick={handleExportJsonReport}
+                className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Export Comprehensive JSON Audit Report"
+              >
+                <FileJson className="w-3.5 h-3.5 text-emerald-400" />
+                Export Audit JSON
+              </button>
+            )}
+            <div className="flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3.5 py-1.5 rounded-full text-xs text-emerald-400">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>API Engine Online</span>
+            </div>
           </div>
         </header>
 
