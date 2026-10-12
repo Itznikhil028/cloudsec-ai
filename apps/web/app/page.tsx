@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   ShieldAlert, ShieldCheck, Terminal, Code, Wrench, 
-  CheckCircle2, Sparkles, Download, FileJson, GitCompare, Edit3 
+  CheckCircle2, Sparkles, Download, FileJson, GitCompare, Edit3,
+  History, X, Clock, AlertTriangle
 } from "lucide-react";
 import { diffLines, Change } from "diff";
 
@@ -24,6 +25,15 @@ interface ScanResult {
   project_id: string;
   status: string;
   total_findings: number;
+  findings: Finding[];
+}
+
+interface HistoryItem {
+  id: string;
+  project_name: string;
+  status: string;
+  total_findings: number;
+  created_at: string;
   findings: Finding[];
 }
 
@@ -49,6 +59,31 @@ export default function Home() {
   const [appliedRule, setAppliedRule] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"editor" | "diff">("editor");
 
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  const fetchHistory = async () => {
+    setLoadingHistory(true);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/scans/history");
+      if (res.ok) {
+        const data = await res.json();
+        setHistoryList(data);
+      }
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  useEffect(() => {
+    if (historyOpen) {
+      fetchHistory();
+    }
+  }, [historyOpen]);
+
   const runScan = async (codeToScan: string) => {
     setLoading(true);
     try {
@@ -62,6 +97,7 @@ export default function Home() {
       });
       const data = await res.json();
       setScanResult(data);
+      fetchHistory();
     } catch (err) {
       console.error(err);
       alert("Failed to connect to scanner API backend.");
@@ -136,10 +172,21 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
+  const loadPastRun = (item: HistoryItem) => {
+    setScanResult({
+      id: item.id,
+      project_id: item.project_name,
+      status: item.status,
+      total_findings: item.total_findings,
+      findings: item.findings,
+    });
+    setHistoryOpen(false);
+  };
+
   const diffResult: Change[] = diffLines(originalIac, iacCode);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-8">
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-8 relative">
       <div className="max-w-7xl mx-auto space-y-8">
         <header className="flex justify-between items-center border-b border-slate-800 pb-6">
           <div className="flex items-center space-x-3">
@@ -150,6 +197,14 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center space-x-3">
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Audit Scan History"
+            >
+              <History className="w-3.5 h-3.5 text-cyan-400" />
+              Scan History
+            </button>
             <button
               onClick={handleDownloadHcl}
               className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -324,6 +379,60 @@ export default function Home() {
           </section>
         </div>
       </div>
+
+      {/* Slide-over Audit History Drawer */}
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-slate-900 border-l border-slate-800 h-full p-6 flex flex-col space-y-6 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2">
+                <History className="w-5 h-5 text-cyan-400" />
+                <h2 className="text-lg font-bold text-slate-100">Audit Run History</h2>
+              </div>
+              <button
+                onClick={() => setHistoryOpen(false)}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {loadingHistory ? (
+                <p className="text-sm text-slate-400 text-center py-8">Loading persisted audits...</p>
+              ) : historyList.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No audit history found.</p>
+              ) : (
+                historyList.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => loadPastRun(item)}
+                    className="p-4 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 cursor-pointer transition-all space-y-2 group"
+                  >
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-sm text-slate-200 group-hover:text-cyan-400 transition-colors">
+                        {item.project_name}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        item.total_findings === 0
+                          ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                          : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
+                      }`}>
+                        {item.total_findings === 0 ? "Compliant" : `${item.total_findings} Findings`}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{item.created_at ? new Date(item.created_at).toLocaleString() : "Just now"}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
