@@ -72,7 +72,7 @@ export default function Home() {
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/scans/history");
+      const res = await fetch("https://cloudsec-ai.onrender.com/api/v1/scans/history");
       if (res.ok) {
         const data = await res.json();
         setHistoryList(data);
@@ -91,7 +91,7 @@ export default function Home() {
   const runScan = async (codeToScan: string) => {
     setLoading(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/scans/submit", {
+      const res = await fetch("https://cloudsec-ai.onrender.com/api/v1/scans/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
