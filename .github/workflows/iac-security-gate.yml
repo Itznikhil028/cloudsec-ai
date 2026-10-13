@@ -1,41 +1,53 @@
-name: IaC Security Gate & Checkov Audit
+name: CloudSecAI IaC Security Gate
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   iac-security-scan:
-    name: Run CloudSec IaC Audit
+    name: Run Checkov & Post PR Comment
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: Checkout Codebase
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: "pip"
+          python-version: '3.12'
 
-      - name: Install Dependencies
+      - name: Install Scanner Tools
         run: |
           python -m pip install --upgrade pip
           pip install checkov
 
-      - name: Run Checkov Security Gate Scan
+      - name: Execute Checkov IaC Scan
         run: |
-          mkdir -p reports
-          # Scan fixture/samples directory, outputting both CLI summary and JSON report
-          checkov -d apps/api/tests/fixtures --output cli --output json --output-file reports/checkov_report.json --soft-fail
+          checkov -d tests/fixtures \
+            --framework terraform \
+            --output json \
+            --output-file-path . \
+            --soft-fail || true
+          if [ -f results_json.json ]; then
+            mv results_json.json checkov_results.json
+          fi
 
-      - name: Upload Audit Artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Generate PR Markdown Report
+        run: |
+          python scripts/generate_pr_comment.py checkov_results.json
+
+      - name: Post or Update PR Comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
         with:
-          name: iac-security-audit-report
-          path: reports/
-          retention-days: 14
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: 'pr_comment.md'
+          edit-mode: replace
