@@ -1,0 +1,57 @@
+name: CloudSecAI IaC Security Gate
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  iac-security-scan:
+    name: Run Checkov & Post PR Comment
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Scanner Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install checkov
+
+      - name: Execute Checkov IaC Scan
+        run: |
+          checkov -d tests/fixtures \
+            --framework terraform \
+            --output json \
+            --soft-fail > checkov_results.json || true
+          ls -lh checkov_results.json
+
+      - name: Generate PR Markdown Report
+        run: |
+          python scripts/generate_pr_comment.py checkov_results.json
+
+      - name: Post or Update PR Comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: 'pr_comment.md'
+          edit-mode: replace
+
+      - name: Enforce Security Quality Gate
+        run: |
+          if grep -q "REMEDIATION REQUIRED" pr_comment.md; then
+            echo "::error::CloudSecAI Security Gate Failed: High-risk security or FinOps policy violations detected."
+            exit 1
+          fi
