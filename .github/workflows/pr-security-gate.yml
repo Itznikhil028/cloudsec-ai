@@ -31,11 +31,7 @@ jobs:
 
       - name: Execute Checkov IaC Scan
         run: |
-          checkov -d tests/fixtures \
-            --framework terraform \
-            --output json \
-            --soft-fail > checkov_results.json || true
-          ls -lh checkov_results.json
+          checkov -d tests/fixtures --framework terraform --output json --soft-fail > checkov_results.json || true
 
       - name: Generate PR Markdown Report
         run: |
