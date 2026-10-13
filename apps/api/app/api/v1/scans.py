@@ -1,6 +1,6 @@
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
 from app.core.scanner import IaCScanner
 from app.core.guardrails import PolicyGuardrailsEngine
@@ -29,6 +29,12 @@ class ScanResultResponse(BaseModel):
     total_findings: int
     findings: List[FindingResponse]
 
+scan_history_store: List[ScanResultResponse] = []
+
+@router.get("/history", response_model=List[ScanResultResponse])
+async def get_scan_history():
+    return scan_history_store
+
 @router.post("/submit", response_model=ScanResultResponse)
 async def submit_scan(request: ScanRequest):
     scan_id = str(uuid.uuid4())
@@ -45,10 +51,13 @@ async def submit_scan(request: ScanRequest):
     for g in guardrail_findings:
         findings.append(FindingResponse(**g))
 
-    return ScanResultResponse(
+    result = ScanResultResponse(
         id=scan_id,
         project_id=project_id,
         status="COMPLETED",
         total_findings=len(findings),
         findings=findings
     )
+
+    scan_history_store.insert(0, result)
+    return result
