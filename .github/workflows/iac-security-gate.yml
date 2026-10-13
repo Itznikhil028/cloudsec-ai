@@ -34,11 +34,8 @@ jobs:
           checkov -d tests/fixtures \
             --framework terraform \
             --output json \
-            --output-file-path . \
-            --soft-fail || true
-          if [ -f results_json.json ]; then
-            mv results_json.json checkov_results.json
-          fi
+            --soft-fail > checkov_results.json || true
+          ls -lh checkov_results.json
 
       - name: Generate PR Markdown Report
         run: |
