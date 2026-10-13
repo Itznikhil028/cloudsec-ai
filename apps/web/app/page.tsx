@@ -5,7 +5,7 @@ import {
   ShieldAlert, ShieldCheck, Terminal, Code, Wrench, 
   CheckCircle2, Sparkles, Download, FileJson, GitCompare, Edit3,
   History, X, Clock, AlertTriangle, Shield, Copy, Check, Filter,
-  ChevronRight, Layers, ArrowUpRight, Cpu
+  Layers, Cpu, Zap
 } from "lucide-react";
 import { diffLines, Change } from "diff";
 
@@ -58,6 +58,7 @@ export default function Home() {
   const [originalIac, setOriginalIac] = useState(DEFAULT_IAC);
   const [iacCode, setIacCode] = useState(DEFAULT_IAC);
   const [loading, setLoading] = useState(false);
+  const [remediatingAll, setRemediatingAll] = useState(false);
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [appliedRule, setAppliedRule] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"editor" | "diff">("editor");
@@ -109,8 +110,8 @@ export default function Home() {
     }
   };
 
-  const handleApplyPatch = async (finding: Finding) => {
-    let updatedCode = iacCode;
+  const applySinglePatch = (currentCode: string, finding: Finding): string => {
+    let updatedCode = currentCode;
     const patch = finding.ai_suggested_patch;
 
     if (finding.rule_id === "CKV_AWS_24") {
@@ -121,7 +122,7 @@ export default function Home() {
         updatedCode = `${updatedCode}\n\n${patch}`;
       }
     } else if (finding.rule_id === "CKV_AWS_23") {
-      const sgPattern = /(resource\s+"aws_security_group"\s+"[a-zA-Z0-9_-]+"\s*\{[\s\S]*?name\s*=\s*"[^"]+")/;
+      const sgPattern = /(resource\s+"aws_security_group"\s+"[a-zA-Z0-9_-]+"\s*\{[\s\S]*?name\s*=\\s*"[^"]+")/;
       if (sgPattern.test(updatedCode)) {
         updatedCode = updatedCode.replace(sgPattern, `$1\n${patch.trim()}`);
       } else {
@@ -131,11 +132,32 @@ export default function Home() {
       updatedCode = `${updatedCode.trim()}\n\n${patch}\n`;
     }
 
-    setIacCode(updatedCode);
+    return updatedCode;
+  };
+
+  const handleApplyPatch = async (finding: Finding) => {
+    const updated = applySinglePatch(iacCode, finding);
+    setIacCode(updated);
     setAppliedRule(finding.rule_id);
     setTimeout(() => setAppliedRule(null), 2500);
+    await runScan(updated);
+  };
 
-    await runScan(updatedCode);
+  const handleAutoRemediateAll = async () => {
+    if (!scanResult || scanResult.findings.length === 0) return;
+    setRemediatingAll(true);
+
+    let hardenedCode = iacCode;
+    for (const finding of scanResult.findings) {
+      if (finding.ai_suggested_patch && !finding.ai_suggested_patch.startsWith("# Remediation: Apply least-privilege")) {
+        hardenedCode = applySinglePatch(hardenedCode, finding);
+      }
+    }
+
+    setIacCode(hardenedCode);
+    setViewMode("diff");
+    await runScan(hardenedCode);
+    setRemediatingAll(false);
   };
 
   const handleCopyCode = () => {
@@ -206,13 +228,11 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#080B11] text-zinc-200 flex flex-col font-mono selection:bg-cyan-500/20 selection:text-cyan-300">
-      {/* Glow Orbs Background */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
         <div className="absolute -top-40 left-1/4 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl"></div>
         <div className="absolute top-1/3 -right-40 w-96 h-96 bg-blue-600/5 rounded-full blur-3xl"></div>
       </div>
 
-      {/* Top Navbar */}
       <header className="relative z-10 border-b border-zinc-800/80 bg-[#0B0F17]/80 backdrop-blur-xl px-6 py-3.5">
         <div className="max-w-[1400px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -268,9 +288,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main Workspace */}
       <div className="relative z-10 max-w-[1400px] mx-auto w-full p-6 space-y-6 flex-1">
-        {/* KPI Bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-sans">
           <div className="bg-[#0D121D]/90 border border-zinc-800/80 rounded-xl p-4 shadow-sm relative overflow-hidden group hover:border-zinc-700/80 transition-all">
             <div className="flex items-center justify-between">
@@ -336,9 +354,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Dual Pane Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* Left: Code Workspace */}
           <div className="bg-[#0B0F17] border border-zinc-800/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-4 py-3 bg-[#0F1420] border-b border-zinc-800/80 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -379,7 +395,7 @@ export default function Home() {
                     setOriginalIac(iacCode);
                     runScan(iacCode);
                   }}
-                  disabled={loading}
+                  disabled={loading || remediatingAll}
                   className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-1.5 rounded-lg text-xs font-sans flex items-center gap-2 transition-all cursor-pointer shadow-[0_0_20px_rgba(6,182,212,0.25)] hover:shadow-[0_0_25px_rgba(6,182,212,0.4)] disabled:opacity-50"
                 >
                   {loading ? (
@@ -398,7 +414,6 @@ export default function Home() {
 
             {viewMode === "editor" ? (
               <div className="relative flex h-[580px] bg-[#080B11] text-xs font-mono overflow-hidden">
-                {/* Gutter Line Numbers */}
                 <div className="w-12 py-4 select-none bg-[#090D14] border-r border-zinc-800/80 text-zinc-600 text-right pr-3 font-mono leading-relaxed space-y-0.5">
                   {codeLines.map((_, i) => (
                     <div key={i}>{i + 1}</div>
@@ -436,7 +451,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right: Security Findings & Remediations */}
           <div className="bg-[#0B0F17] border border-zinc-800/80 rounded-2xl shadow-2xl flex flex-col overflow-hidden">
             <div className="px-4 py-3 bg-[#0F1420] border-b border-zinc-800/80 flex items-center justify-between font-sans">
               <span className="flex items-center gap-2 text-xs font-semibold text-zinc-200">
@@ -444,21 +458,42 @@ export default function Home() {
                 Security Findings & Patches
               </span>
 
-              {scanResult && scanResult.total_findings > 0 && (
-                <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[11px]">
-                  {["ALL", "CRITICAL", "HIGH", "MEDIUM"].map((sev) => (
-                    <button
-                      key={sev}
-                      onClick={() => setFilterSeverity(sev)}
-                      className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
-                        filterSeverity === sev ? "bg-zinc-800 text-cyan-300 font-bold" : "text-zinc-400 hover:text-zinc-200"
-                      }`}
-                    >
-                      {sev}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                {scanResult && scanResult.total_findings > 0 && (
+                  <button
+                    onClick={handleAutoRemediateAll}
+                    disabled={loading || remediatingAll}
+                    className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                  >
+                    {remediatingAll ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
+                        Auto-Remediating...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-3.5 h-3.5 text-emerald-400 fill-emerald-400" /> Auto-Remediate All
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {scanResult && scanResult.total_findings > 0 && (
+                  <div className="flex items-center gap-1 bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[11px]">
+                    {["ALL", "CRITICAL", "HIGH", "MEDIUM"].map((sev) => (
+                      <button
+                        key={sev}
+                        onClick={() => setFilterSeverity(sev)}
+                        className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                          filterSeverity === sev ? "bg-zinc-800 text-cyan-300 font-bold" : "text-zinc-400 hover:text-zinc-200"
+                        }`}
+                      >
+                        {sev}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="h-[580px] overflow-y-auto p-4 space-y-4">
@@ -519,7 +554,7 @@ export default function Home() {
                           </span>
                           <button
                             onClick={() => handleApplyPatch(finding)}
-                            disabled={loading}
+                            disabled={loading || remediatingAll}
                             className="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold px-3 py-1 rounded-md flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
                           >
                             {appliedRule === finding.rule_id ? (
@@ -546,7 +581,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Slide-over Audit History Drawer */}
       {historyOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm font-sans">
           <div className="w-full max-w-md bg-[#0B0F17] border-l border-zinc-800 h-full p-6 flex flex-col space-y-6 shadow-2xl">
